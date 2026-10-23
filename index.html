@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lider Tekstil - Warehouse</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- React & ReactDOM CDN -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <!-- Babel for JSX -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-gray-950 text-gray-100 font-sans min-h-screen">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useMemo, useRef } = React;
+
+    // Инициализация звуковых сигналов
+    class AudioFeedback {
+      static ctx = null;
+      static init() {
+        if (!this.ctx) {
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          if (AudioCtx) this.ctx = new AudioCtx();
+        }
+      }
+      static playSuccess() {
+        try {
+          this.init();
+          if (!this.ctx) return;
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(880, this.ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(1760, this.ctx.currentTime + 0.12);
+          gain.gain.setValueAtTime(0.15, this.ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.12);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(); osc.stop(this.ctx.currentTime + 0.12);
+          if (navigator.vibrate) navigator.vibrate(50);
+        } catch (e) { console.error(e); }
+      }
+      static playError() {
+        try {
+          this.init();
+          if (!this.ctx) return;
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(220, this.ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(110, this.ctx.currentTime + 0.25);
+          gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.25);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(); osc.stop(this.ctx.currentTime + 0.25);
+          if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+        } catch (e) { console.error(e); }
+      }
+    }
+
+    const INITIAL_USERS = [
+      { id: 1, name: 'Алишер', role: 'Кладовщик' },
+      { id: 2, name: 'Даврон', role: 'Администратор' },
+      { id: 3, name: 'Сардор', role: 'Наблюдатель' }
+    ];
+
+    const INITIAL_PRODUCTS = [
+      { id: 1, article: 'XM11', name: 'Халат Махровый Люкс', material: 'Махра', colorCode: '1 (Белый)' },
+      { id: 2, article: 'MK1', name: 'Халат Кимоно Классик', material: 'Вафля', colorCode: '1 (Белый)' },
+      { id: 3, article: 'MK4', name: 'Халат Кимоно Узор', material: 'Вафля', colorCode: '4 (Бежевый)' },
+      { id: 4, article: 'KB2', name: 'Халат Банный С Капюшоном', material: 'Махра', colorCode: '2 (Графит)' }
+    ];
+
+    const INITIAL_BAGS = [
+      { id: 1, number: 'MIX-001', type: 'MIX', status: 'filled', items: [ { article: 'XM11', size: '2XL', quantity: 8 }, { article: 'XM11', size: '3XL', quantity: 13 } ] },
+      { id: 2, number: 'UZUM-001', type: 'UZUM MARKET', status: 'filled', items: [ { article: 'MK1', size: 'XL', quantity: 25 } ] },
+      { id: 3, number: 'MONO-001', type: 'MONO', status: 'filled', items: [ { article: 'XM11', size: 'L', quantity: 30 } ] },
+      { id: 4, number: 'MONO-002', type: 'MONO', status: 'empty', items: [] }
+    ];
+
+    const INITIAL_HISTORY = [
+      { id: 1, time: '2026-10-24 08:30', user: 'Даврон', action: 'ADD', bag: 'MONO-001', article: 'XM11', size: 'L', qtyChange: 20, comment: 'Приход с цеха' }
+    ];
+
+    function App() {
+      const [activeTab, setActiveTab] = useState('overview');
+      const [currentUser] = useState(INITIAL_USERS[0]);
+      const [bags, setBags] = useState(INITIAL_BAGS);
+      const [products] = useState(INITIAL_PRODUCTS);
+      const [history, setHistory] = useState(INITIAL_HISTORY);
+      const [activeBag, setActiveBag] = useState(null);
+      const [toast, setToast] = useState({ message: '', visible: false });
+
+      useEffect(() => {
+        if (window.lucide) window.lucide.createIcons();
+      }, [activeTab, activeBag]);
+
+      const notify = (msg) => {
+        AudioFeedback.playSuccess();
+        setToast({ message: msg, visible: true });
+        setTimeout(() => setToast({ message: '', visible: false }), 3000);
+      };
+
+      const totals = useMemo(() => {
+        let totalRobes = 0, filledBags = 0, emptyBags = 0;
+        bags.forEach(b => {
+          let bTotal = 0;
+          b.items.forEach(i => { bTotal += i.quantity; totalRobes += i.quantity; });
+          if (bTotal > 0) filledBags++; else emptyBags++;
+        });
+        return { totalRobes, filledBags, emptyBags };
+      }, [bags]);
+
+      return (
+        <div className="min-h-screen flex flex-col pb-20">
+          <!-- Шапка -->
+          <header className="bg-gray-900 border-b border-gray-800 p-4 flex justify-between items-center">
+            <div className="flex items-center space-x-3">
+              <div className="bg-teal-500 text-gray-950 font-black px-3 py-1 rounded-xl text-lg">LT</div>
+              <div>
+                <h1 className="font-bold text-sm text-white">Lider Tekstil</h1>
+                <p className="text-[10px] text-teal-400 uppercase">Складской учёт</p>
+              </div>
+            </div>
+            <div className="text-right text-xs">
+              <span className="text-gray-400">Пользователь: </span>
+              <span className="text-teal-400 font-bold">{currentUser.name}</span>
+            </div>
+          </header>
+
+          <!-- Контент -->
+          <main className="flex-1 p-4 max-w-4xl mx-auto w-full">
+            {activeTab === 'overview' && (
+              <div className="space-y-4">
+                <h2 className="text-xl font-bold text-white">Состояние склада</h2>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="bg-gray-900 border border-gray-800 p-4 rounded-2xl text-center">
+                    <p className="text-xs text-gray-400">Халатов</p>
+                    <p className="text-2xl font-black text-teal-400 mt-1">{totals.totalRobes}</p>
+                  </div>
+                  <div className="bg-gray-900 border border-gray-800 p-4 rounded-2xl text-center">
+                    <p className="text-xs text-gray-400">Полных мешков</p>
+                    <p className="text-2xl font-black text-emerald-400 mt-1">{totals.filledBags}</p>
+                  </div>
+                  <div className="bg-gray-900 border border-gray-800 p-4 rounded-2xl text-center">
+                    <p className="text-xs text-gray-400">Пустых</p>
+                    <p className="text-2xl font-black text-amber-400 mt-1">{totals.emptyBags}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'bags' && (
+              <div className="space-y-4">
+                <h2 className="text-xl font-bold text-white">Мешки</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {bags.map(b => (
+                    <div key={b.id} onClick={() => setActiveBag(b)} className="bg-gray-900 border border-gray-800 p-4 rounded-2xl cursor-pointer hover:border-teal-500">
+                      <div className="flex justify-between items-center">
+                        <span className="font-bold text-lg text-teal-400">{b.number}</span>
+                        <span className="text-xs px-2 py-1 rounded bg-gray-800 text-gray-300">{b.type}</span>
+                      </div>
+                      <p className="text-xs text-gray-400 mt-2">Позиций: {b.items.length}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'catalog' && (
+              <div className="space-y-4">
+                <h2 className="text-xl font-bold text-white">Каталог товаров</h2>
+                <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 space-y-3">
+                  {products.map(p => (
+                    <div key={p.id} className="flex justify-between items-center border-b border-gray-800 pb-2">
+                      <div>
+                        <p className="font-bold text-teal-400">{p.article}</p>
+                        <p className="text-xs text-gray-300">{p.name}</p>
+                      </div>
+                      <span className="text-xs text-gray-400">{p.material}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </main>
+
+          <!-- Нижняя навигация для телефонов -->
+          <nav className="fixed bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-800 flex justify-around py-3 z-50">
+            <button onClick={() => { setActiveTab('overview'); setActiveBag(null); }} className={`text-xs font-bold ${activeTab === 'overview' ? 'text-teal-400' : 'text-gray-400'}`}>Склад</button>
+            <button onClick={() => { setActiveTab('bags'); setActiveBag(null); }} className={`text-xs font-bold ${activeTab === 'bags' ? 'text-teal-400' : 'text-gray-400'}`}>Мешки</button>
+            <button onClick={() => { setActiveTab('catalog'); setActiveBag(null); }} className={`text-xs font-bold ${activeTab === 'catalog' ? 'text-teal-400' : 'text-gray-400'}`}>Каталог</button>
+          </nav>
+
+          {toast.visible && (
+            <div className="fixed top-4 right-4 bg-teal-500 text-gray-950 font-bold px-4 py-2 rounded-xl shadow-lg z-50">
+              {toast.message}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
